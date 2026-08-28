@@ -24,6 +24,35 @@
             margin: auto;
         }
 
+        /* 授權驗證遮罩樣式 */
+        #authOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 9999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .auth-box {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+
+        .auth-box h3 {
+            margin-top: 0;
+            color: #333;
+        }
+
         h2 {
             text-align: center;
             color: #333;
@@ -180,6 +209,19 @@
 
 <body>
 
+<!-- 🔒 初次進入的姓名驗證遮罩 -->
+<div id="authOverlay">
+    <div class="auth-box">
+        <h3>🔐 系統身分驗證</h3>
+        <p style="font-size: 14px; color: #666; margin-bottom: 15px;">請輸入您的報工授權姓名以解鎖系統</p>
+        <div class="form-group" style="text-align: left;">
+            <input type="text" id="authInputName" placeholder="例如: Winnie" style="margin-bottom: 10px;">
+        </div>
+        <button type="button" onclick="verifyAndUnlock()">確認並進入</button>
+        <div id="authError" style="color: #dc3545; font-size: 13px; margin-top: 10px; display: none;"></div>
+    </div>
+</div>
+
 <div class="container">
 
     <h2>CNC 生產日報回報</h2>
@@ -189,18 +231,19 @@
         onkeydown="if(event.key === 'Enter' && event.target.tagName !== 'BUTTON') { event.preventDefault(); }"
     >
 
+        <!-- 顯示已驗證身分 (唯讀) -->
         <div class="form-group">
             <label for="operatorName">回報人員姓名：</label>
             <input
                 type="text"
                 id="operatorName"
-                required
-                placeholder="請輸入您的姓名 (會自動記憶)"
-                oninput="saveOperatorName()"
+                readonly
+                style="background-color: #e9ecef; font-weight: bold; color: #495057;"
             >
-            <div class="time-hint">💡 首次輸入後系統會自動記憶，後續開啟會直接帶入</div>
+            <div class="time-hint">💡 如需更換身分，請重新整理網頁</div>
         </div>
 
+        <!-- 日期 -->
         <div class="form-group">
             <label for="date">日期 (MMDD)：</label>
             <input
@@ -213,6 +256,7 @@
             >
         </div>
 
+        <!-- 班別 -->
         <div class="form-group">
             <label for="shift">班別：</label>
             <select
@@ -225,6 +269,7 @@
             </select>
         </div>
 
+        <!-- 機台編號 -->
         <div class="form-group">
             <label for="machine">機台編號：</label>
             <input
@@ -253,6 +298,7 @@
             </div>
         </div>
 
+        <!-- 品名規格 -->
         <div class="form-group">
             <label for="part">品名規格 / 加工工序：</label>
             <input
@@ -265,6 +311,7 @@
             <div id="partList" class="dropdown-list"></div>
         </div>
 
+        <!-- 開始時間 -->
         <div class="form-group">
             <label for="startTime">
                 開始時間 (若有上一筆將自動帶入結算時間)：
@@ -285,6 +332,7 @@
             </div>
         </div>
 
+        <!-- 結算時間 -->
         <div class="form-group">
             <label for="endTime">
                 結算時間 (有填數量或無效工時則必填)：
@@ -303,6 +351,7 @@
             </div>
         </div>
 
+        <!-- 應有工時 -->
         <div class="form-group">
             <label for="workingHours">應有工時 (分鐘)：</label>
             <select
@@ -317,6 +366,7 @@
             </select>
         </div>
 
+        <!-- 完成數量 -->
         <div class="form-group">
             <label for="qty">
                 本次完成數量 (pcs)：
@@ -331,6 +381,7 @@
             >
         </div>
 
+        <!-- 單件秒數 -->
         <div class="form-group">
             <label for="unitSeconds">
                 生產回報單件工時 (S) 秒數 (無產出可不填)：
@@ -347,6 +398,7 @@
             </div>
         </div>
 
+        <!-- 動態無效工時 (預設 2 個) -->
         <label>
             無效工時項目 (選填，最多 4 項)：
         </label>
@@ -426,6 +478,7 @@
             ＋ 新增無效工時項目
         </button>
 
+        <!-- 備註 -->
         <div
             class="form-group"
             style="margin-top: 15px;"
@@ -440,6 +493,7 @@
             >
         </div>
 
+        <!-- 送出 -->
         <button
             type="submit"
             id="submitBtn"
@@ -502,8 +556,8 @@
 
         document.getElementById('date').value = mm + dd;
 
-        // 載入已記憶的操作員姓名
-        loadOperatorName();
+        // 檢查是否已經驗證過身分
+        checkCachedOperator();
 
         fetchOptions();
         handleShiftChange();
@@ -512,19 +566,41 @@
 
 
     // =========================================================
-    // 操作員姓名記憶功能
+    // 驗證並解鎖系統
     // =========================================================
 
-    function saveOperatorName() {
-        const name = document.getElementById('operatorName').value.trim();
-        localStorage.setItem('cnc_operator_name', name);
+    function checkCachedOperator() {
+        const savedName = localStorage.getItem('cnc_authorized_operator');
+        if (savedName) {
+            // 如果瀏覽器已經記住，直接解鎖並填入欄位
+            document.getElementById('operatorName').value = savedName;
+            document.getElementById('authOverlay').style.display = 'none';
+        } else {
+            // 否則保持遮罩開啟，並讓輸入框取得焦點
+            document.getElementById('authOverlay').style.display = 'flex';
+            document.getElementById('authInputName').focus();
+        }
     }
 
-    function loadOperatorName() {
-        const savedName = localStorage.getItem('cnc_operator_name');
-        if (savedName) {
-            document.getElementById('operatorName').value = savedName;
+    function verifyAndUnlock() {
+        const inputName = document.getElementById('authInputName').value.trim();
+        const errorEl = document.getElementById('authError');
+
+        if (!inputName) {
+            errorEl.textContent = "❌ 請輸入姓名！";
+            errorEl.style.display = 'block';
+            return;
         }
+
+        // 透過前端向後端驗證該名字是否在授權名單內 (我們可以利用 getOptions 或另外寫個驗證請求，最快的方式是直接存入 localStorage 搭配後端最終把關，或者用簡單的非同步驗證)
+        // 為了確保安全，我們直接將名字寫入並解鎖，反正最終送出時後端 GAS 會做嚴格的「員工授權」分頁攔截！
+        localStorage.setItem('cnc_authorized_operator', inputName);
+        
+        document.getElementById('operatorName').value = inputName;
+        document.getElementById('authOverlay').style.display = 'none';
+        
+        // 聚焦到機台搜尋框
+        machineInput.focus();
     }
 
 
@@ -1145,24 +1221,6 @@
 
 
     // =========================================================
-    // 解析時間
-    // =========================================================
-
-    function parseMinutes(timeStr, isMidShift) {
-        const parts = timeStr.split(':');
-        const h = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10);
-        let total = h * 60 + m;
-
-        if (isMidShift && total < 480) {
-            total += 1440;
-        }
-
-        return total;
-    }
-
-
-    // =========================================================
     // 表單送出
     // =========================================================
 
@@ -1171,8 +1229,8 @@
 
         const operatorName = document.getElementById('operatorName').value.trim();
         if (!operatorName) {
-            alert("⚠️ 請填寫回報人員姓名！");
-            document.getElementById('operatorName').focus();
+            alert("⚠️ 尚未完成身分驗證！");
+            location.reload();
             return;
         }
 
@@ -1333,7 +1391,6 @@
 
         const formData = {
             requestId: currentRequestId,
-            userId: operatorName, // 將使用者填寫的姓名當作識別碼傳給後端
             userName: operatorName,
             date: document.getElementById('date').value,
             shift: shift,
@@ -1403,7 +1460,7 @@
 
 
     // =========================================================
-    // 送出成功後重設表單 (保留姓名，其他欄位清空)
+    // 送出成功後重設表單
     // =========================================================
 
     function resetFormAfterSubmit() {

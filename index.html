@@ -213,7 +213,7 @@
 <div id="authOverlay">
     <div class="auth-box">
         <h3>🔐 系統身分驗證</h3>
-        <p style="font-size: 14px; color: #666; margin-bottom: 15px;">請輸入您的授權姓名以解鎖系統</p>
+        <p style="font-size: 14px; color: #666; margin-bottom: 15px;">請輸入您的授權姓名以解鎖系統（每日需驗證一次）</p>
         <div class="form-group" style="text-align: left;">
             <input type="text" id="authInputName" placeholder="例如: Winnie" style="margin-bottom: 10px;">
         </div>
@@ -555,8 +555,8 @@
 
         document.getElementById('date').value = mm + dd;
 
-        // 檢查瀏覽器是否已記住驗證過的身分
-        checkCachedOperator();
+        // 檢查是否為「今天」已經驗證過身分
+        checkDailyOperator();
 
         fetchOptions();
         handleShiftChange();
@@ -565,34 +565,48 @@
 
 
     // =========================================================
-    // 驗證身分並解鎖系統
+    // 每日身分驗證檢查 (隔天自動失效，需重新輸入)
     // =========================================================
 
-    function checkCachedOperator() {
-        const savedName = localStorage.getItem('cnc_authorized_operator');
-        if (savedName) {
-            // 向後端確認已儲存的名字是否依然有效
-            fetch(`${GAS_WEB_APP_URL}?action=verifyAuth&name=${encodeURIComponent(savedName)}`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    document.getElementById('operatorName').value = savedName;
-                    document.getElementById('authOverlay').style.display = 'none';
-                } else {
-                    localStorage.removeItem('cnc_authorized_operator');
-                    document.getElementById('authOverlay').style.display = 'flex';
-                    document.getElementById('authInputName').focus();
+    function checkDailyOperator() {
+        const todayStr = new Date().toISOString().slice(0, 10); // 格式: YYYY-MM-DD
+        const savedDataJson = localStorage.getItem('cnc_daily_auth');
+
+        if (savedDataJson) {
+            try {
+                const savedData = JSON.parse(savedDataJson);
+                // 檢查儲存的日期是否就是今天
+                if (savedData.date === todayStr && savedData.name) {
+                    // 向後端再次確認名字有效性
+                    fetch(`${GAS_WEB_APP_URL}?action=verifyAuth&name=${encodeURIComponent(savedData.name)}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            document.getElementById('operatorName').value = savedData.name;
+                            document.getElementById('authOverlay').style.display = 'none';
+                        } else {
+                            localStorage.removeItem('cnc_daily_auth');
+                            showAuthOverlay();
+                        }
+                    })
+                    .catch(() => {
+                        // 網路離線時，若日期是今天則暫時信任
+                        document.getElementById('operatorName').value = savedData.name;
+                        document.getElementById('authOverlay').style.display = 'none';
+                    });
+                    return;
                 }
-            })
-            .catch(() => {
-                // 網路異常時允許暫時使用快取
-                document.getElementById('operatorName').value = savedName;
-                document.getElementById('authOverlay').style.display = 'none';
-            });
-        } else {
-            document.getElementById('authOverlay').style.display = 'flex';
-            document.getElementById('authInputName').focus();
+            } catch (e) {}
         }
+
+        // 如果沒有紀錄，或是跨日了，強制跳出驗證框
+        showAuthOverlay();
+    }
+
+    function showAuthOverlay() {
+        localStorage.removeItem('cnc_daily_auth');
+        document.getElementById('authOverlay').style.display = 'flex';
+        document.getElementById('authInputName').focus();
     }
 
     function verifyAndUnlock() {
@@ -613,7 +627,13 @@
         .then(res => res.json())
         .then(data => {
             if (data.success) {
-                localStorage.setItem('cnc_authorized_operator', inputName);
+                const todayStr = new Date().toISOString().slice(0, 10);
+                // 寫入當日授權紀錄 (包含今天日期)
+                localStorage.setItem('cnc_daily_auth', JSON.stringify({
+                    name: inputName,
+                    date: todayStr
+                }));
+
                 document.getElementById('operatorName').value = inputName;
                 document.getElementById('authOverlay').style.display = 'none';
                 machineInput.focus();

@@ -1,0 +1,1534 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>CNC 生產日報回報系統 (企業微信版)</title>
+
+    <!-- 引入企業微信 JS-SDK (選用，若需要更深度的企業微信介面整合可使用) -->
+    <script src="//res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 600px;
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+            margin: auto;
+        }
+
+        h2 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+            position: relative;
+        }
+
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #555;
+        }
+
+        input,
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+
+        .dropdown-list {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            width: 100%;
+            max-height: 180px;
+            overflow-y: auto;
+            background: white;
+            border: 1px solid #ccc;
+            border-top: none;
+            z-index: 1000;
+            display: none;
+            border-radius: 0 0 5px 5px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .dropdown-item {
+            padding: 10px;
+            cursor: pointer;
+        }
+
+        .dropdown-item:hover,
+        .dropdown-item.active {
+            background-color: #e0e0e0;
+        }
+
+        button {
+            width: 100%;
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px;
+            font-size: 18px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        button:disabled {
+            background: #cccccc;
+            cursor: not-allowed;
+        }
+
+        #loading {
+            display: none;
+            text-align: center;
+            color: #007bff;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+
+        .time-hint {
+            font-size: 12px;
+            color: #888;
+            margin-top: 3px;
+        }
+
+        #userInfo {
+            font-size: 13px;
+            color: #666;
+            text-align: right;
+            margin-bottom: 15px;
+        }
+
+        .invalid-box {
+            background: #f9f9f9;
+            padding: 12px;
+            border-radius: 5px;
+            border: 1px dashed #ccc;
+            margin-bottom: 10px;
+            position: relative;
+        }
+
+        .auto-hint {
+            font-size: 12px;
+            color: #28a745;
+            margin-top: 3px;
+            font-weight: bold;
+        }
+
+        .machine-hint {
+            font-size: 12px;
+            color: #888;
+            margin-top: 3px;
+        }
+
+        .machine-error {
+            font-size: 12px;
+            color: #dc3545;
+            margin-top: 3px;
+            display: none;
+            font-weight: bold;
+        }
+
+        .btn-add {
+            background: #28a745;
+            width: auto;
+            padding: 6px 14px;
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+
+        .btn-add:hover {
+            background: #218838;
+        }
+
+        .btn-remove {
+            background: #dc3545;
+            width: auto;
+            padding: 4px 10px;
+            font-size: 12px;
+            float: right;
+            margin-top: 0;
+        }
+
+        .btn-remove:hover {
+            background: #c82333;
+        }
+
+        .request-hint {
+            font-size: 11px;
+            color: #999;
+            text-align: center;
+            margin-top: 5px;
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h2>CNC 生產日報回報</h2>
+
+    <div id="userInfo">正在取得企業微信身分中...</div>
+
+    <form
+        id="reportForm"
+        onkeydown="if(event.key === 'Enter' && event.target.tagName !== 'BUTTON') { event.preventDefault(); }"
+    >
+
+        <!-- 日期 -->
+        <div class="form-group">
+            <label for="date">日期 (MMDD)：</label>
+            <input
+                type="text"
+                id="date"
+                inputmode="numeric"
+                required
+                placeholder="例如: 0824"
+                onchange="fetchLastRecord()"
+            >
+        </div>
+
+        <!-- 班別 -->
+        <div class="form-group">
+            <label for="shift">班別：</label>
+            <select
+                id="shift"
+                required
+                onchange="handleShiftChange(); fetchLastRecord();"
+            >
+                <option value="白班">白班 (08:00 - 17:00)</option>
+                <option value="中班">中班 (17:00 - 03:30)</option>
+            </select>
+        </div>
+
+        <!-- 機台編號 -->
+        <div class="form-group">
+            <label for="machine">機台編號：</label>
+            <input
+                type="text"
+                id="machine"
+                required
+                placeholder="輸入關鍵字搜尋機台..."
+                autocomplete="off"
+            >
+            <div id="machineList" class="dropdown-list"></div>
+            <div class="machine-hint">
+                💡 請從下方清單選擇機台，不能自行輸入不存在的機台
+            </div>
+            <div
+                class="machine-error"
+                id="machineError"
+            >
+                ❌ 請從機台清單中選擇有效的機台
+            </div>
+            <div
+                class="auto-hint"
+                id="autoHint"
+                style="display:none;"
+            >
+                ⚡ 已自動帶入當天該機台上一筆作業資料與結束時間
+            </div>
+        </div>
+
+        <!-- 品名規格 -->
+        <div class="form-group">
+            <label for="part">品名規格 / 加工工序：</label>
+            <input
+                type="text"
+                id="part"
+                required
+                placeholder="輸入關鍵字搜尋品名..."
+                autocomplete="off"
+            >
+            <div id="partList" class="dropdown-list"></div>
+        </div>
+
+        <!-- 開始時間 -->
+        <div class="form-group">
+            <label for="startTime">
+                開始時間 (若有上一筆將自動帶入結算時間)：
+            </label>
+            <input
+                type="text"
+                id="startTime"
+                inputmode="numeric"
+                placeholder="例: 0800"
+                maxlength="5"
+                oninput="autoFormatTime(this, 'endTime')"
+                onblur="validateTimeInput(this)"
+                onkeydown="jumpToNext(event, 'endTime')"
+                required
+            >
+            <div class="time-hint">
+                💡 輸入 4 位數字（如 0800，離開時自動轉為 08:00）
+            </div>
+        </div>
+
+        <!-- 結算時間 -->
+        <div class="form-group">
+            <label for="endTime">
+                結算時間 (有填數量或無效工時則必填)：
+            </label>
+            <input
+                type="text"
+                id="endTime"
+                inputmode="numeric"
+                placeholder="例: 1700"
+                maxlength="5"
+                oninput="autoFormatEndTime(this)"
+                onblur="validateTimeInput(this)"
+            >
+            <div class="time-hint">
+                💡 輸入 4 位數字（如 1700，離開時自動轉為 17:00）
+            </div>
+        </div>
+
+        <!-- 應有工時 -->
+        <div class="form-group">
+            <label for="workingHours">應有工時 (分鐘)：</label>
+            <select
+                id="workingHours"
+                required
+                onchange="jumpToQty()"
+                onkeydown="jumpToNext(event, 'qty')"
+            >
+                <option value="540">
+                    540 分鐘 (標準白班)
+                </option>
+            </select>
+        </div>
+
+        <!-- 完成數量 -->
+        <div class="form-group">
+            <label for="qty">
+                本次完成數量 (pcs)：
+            </label>
+            <input
+                type="text"
+                id="qty"
+                inputmode="numeric"
+                required
+                placeholder="請輸入完成數量 (若無產出可填 0)"
+                onkeydown="jumpToNext(event, 'unitSeconds')"
+            >
+        </div>
+
+        <!-- 單件秒數 -->
+        <div class="form-group">
+            <label for="unitSeconds">
+                生產回報單件工時 (S) 秒數 (無產出可不填)：
+            </label>
+            <input
+                type="text"
+                id="unitSeconds"
+                inputmode="numeric"
+                placeholder="請輸入單件秒數 (0～300 秒)"
+                onkeydown="jumpToNext(event, 'remark')"
+            >
+            <div class="time-hint">
+                💡 單件工時範圍：0～300 秒
+            </div>
+        </div>
+
+        <!-- 動態無效工時 (預設 2 個) -->
+        <label>
+            無效工時項目 (選填，最多 4 項)：
+        </label>
+        <div id="invalidContainer">
+            <div class="invalid-box" data-index="1">
+                <span>項目 1</span>
+                <div
+                    class="form-group"
+                    style="margin-top: 8px; margin-bottom: 8px;"
+                >
+                    <select class="invalidType">
+                        <option value="">無</option>
+                        <option value="換刀">換刀</option>
+                        <option value="清潔">清潔</option>
+                        <option value="點檢">點檢</option>
+                        <option value="待料">待料</option>
+                        <option value="換批">換批</option>
+                        <option value="其他">其他</option>
+                    </select>
+                </div>
+                <div
+                    class="form-group"
+                    style="margin-bottom: 0;"
+                >
+                    <input
+                        type="text"
+                        class="invalidMin"
+                        inputmode="numeric"
+                        placeholder="請輸入分鐘數"
+                    />
+                </div>
+            </div>
+            
+            <div class="invalid-box" data-index="2">
+                <span>項目 2</span>
+                <button
+                    type="button"
+                    class="btn-remove"
+                    onclick="removeInvalidBox(this)"
+                >
+                    刪除
+                </button>
+                <div
+                    class="form-group"
+                    style="margin-top: 8px; margin-bottom: 8px;"
+                >
+                    <select class="invalidType">
+                        <option value="">無</option>
+                        <option value="換刀">換刀</option>
+                        <option value="清潔">清潔</option>
+                        <option value="點檢">點檢</option>
+                        <option value="待料">待料</option>
+                        <option value="換批">換批</option>
+                        <option value="其他">其他</option>
+                    </select>
+                </div>
+                <div
+                    class="form-group"
+                    style="margin-bottom: 0;"
+                >
+                    <input
+                        type="text"
+                        class="invalidMin"
+                        inputmode="numeric"
+                        placeholder="請輸入分鐘數"
+                    />
+                </div>
+            </div>
+        </div>
+
+        <button
+            type="button"
+            class="btn-add"
+            id="addInvalidBtn"
+            onclick="addInvalidBox()"
+        >
+            ＋ 新增無效工時項目
+        </button>
+
+        <!-- 備註 -->
+        <div
+            class="form-group"
+            style="margin-top: 15px;"
+        >
+            <label for="remark">
+                備註 (選填)：
+            </label>
+            <input
+                type="text"
+                id="remark"
+                placeholder="如有特殊狀況請填寫"
+            >
+        </div>
+
+        <!-- 送出 -->
+        <button
+            type="submit"
+            id="submitBtn"
+        >
+            確認送出
+        </button>
+
+        <div id="loading">
+            ⏳ 正在送出資料，請稍候（請勿重複點擊）...
+        </div>
+
+        <div
+            id="requestHint"
+            class="request-hint"
+        >
+            Request ID：<span id="requestIdDisplay"></span>
+        </div>
+
+    </form>
+
+</div>
+
+
+<script>
+
+    // =========================================================
+    // 基本設定
+    // =========================================================
+
+    const GAS_WEB_APP_URL =
+        "https://script.google.com/macros/s/AKfycbzNmAcfqQONHACrY_eWBPhGWD5gqnTvtSVm6ANcvV7qH7Wu1CgZJVtNDhSMJI1uCwOEcg/exec";
+
+
+    // =========================================================
+    // 全域變數
+    // =========================================================
+
+    let allMachines = [];
+    let allParts = [];
+
+    let userProfile = {}; // 存放企業微信身分 { userId: '...', displayName: '...' }
+
+    let isUserTypingPart = false;
+
+    let lastRecordEndTime = null;
+
+    let selectedMachine = "";
+
+    let lastRecordRequestSeq = 0;
+
+    let currentRequestId = null;
+
+
+    // =========================================================
+    // 頁面初始化
+    // =========================================================
+
+    window.onload = function () {
+        const today = new Date();
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+
+        document.getElementById('date').value = mm + dd;
+
+        fetchOptions();
+        handleShiftChange();
+        fetchWeComUserProfile(); // 改為取得企業微信身分
+        checkAddButtonState();
+    };
+
+
+    // =========================================================
+    // 取得企業微信使用者身分 (透過網址帶入的 code 或向後端請求)
+    // =========================================================
+
+    function fetchWeComUserProfile() {
+        // 從網址列取得企業微信重新導向帶過來的 code (若有做 OAuth 授權轉發)
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+
+        // 向 GAS 後端發送請求換取企業微信員工資料
+        fetch(`${GAS_WEB_APP_URL}?action=getWeComUser${code ? '&code=' + code : ''}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.success && data.userId) {
+                userProfile = {
+                    userId: data.userId,
+                    displayName: data.name || data.userId
+                };
+                document.getElementById('userInfo').textContent = `👤 登入身分: ${userProfile.displayName}`;
+            } else {
+                // 開發測試時的 fallback 預設身分（正式上線請確保企業微信授權正確）
+                userProfile = {
+                    userId: "WeCom_Test_User",
+                    displayName: "測試員工"
+                };
+                document.getElementById('userInfo').textContent = `👤 登入身分: ${userProfile.displayName} (測試模式)`;
+            }
+        })
+        .catch(err => {
+            console.error('無法取得企業微信身分', err);
+            // 預設給予測試身分避免介面卡住
+            userProfile = {
+                userId: "WeCom_Default_User",
+                displayName: "現場作業員"
+            };
+            document.getElementById('userInfo').textContent = `👤 登入身分: ${userProfile.displayName}`;
+        });
+    }
+
+
+    // =========================================================
+    // 取得機台 / 品號清單
+    // =========================================================
+
+    function fetchOptions() {
+        fetch(GAS_WEB_APP_URL + "?action=getOptions")
+        .then(res => {
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`);
+            }
+            return res.json();
+        })
+        .then(data => {
+            allMachines = (data.machines || []).map(m => String(m).trim()).filter(Boolean);
+            allParts = (data.parts || []).map(p => String(p).trim()).filter(Boolean);
+        })
+        .catch(err => {
+            console.error("⚠️ 無法取得選單資料", err);
+        });
+    }
+
+
+    // =========================================================
+    // 取得上一筆資料
+    // =========================================================
+
+    function fetchLastRecord() {
+        const date = document.getElementById('date').value.trim();
+        const shift = document.getElementById('shift').value;
+        const machine = (machineInput.value || selectedMachine).trim();
+
+        if (!date || !shift || !machine) {
+            return;
+        }
+
+        const requestSeq = ++lastRecordRequestSeq;
+
+        const url = `${GAS_WEB_APP_URL}` +
+            `?action=getLastRecord` +
+            `&date=${encodeURIComponent(date)}` +
+            `&shift=${encodeURIComponent(shift)}` +
+            `&machine=${encodeURIComponent(machine)}`;
+
+        fetch(url)
+        .then(res => {
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`);
+            }
+            return res.json();
+        })
+        .then(data => {
+            if (requestSeq !== lastRecordRequestSeq) {
+                return;
+            }
+
+            const hintEl = document.getElementById('autoHint');
+            const partInputEl = document.getElementById('part');
+            const startTimeEl = document.getElementById('startTime');
+
+            if (data.success) {
+                if (data.part && !partInputEl.value.trim() && !isUserTypingPart) {
+                    partInputEl.value = data.part;
+                }
+
+                if (data.endTime && !startTimeEl.value.trim()) {
+                    startTimeEl.value = data.endTime;
+                    lastRecordEndTime = data.endTime;
+                }
+
+                if (data.workingHours) {
+                    document.getElementById('workingHours').value = data.workingHours;
+                }
+
+                if (data.unitSeconds !== undefined && data.unitSeconds !== null && data.unitSeconds !== "") {
+                    const previousSeconds = Number(data.unitSeconds);
+                    if (!isNaN(previousSeconds) && previousSeconds >= 0 && previousSeconds <= 300) {
+                        document.getElementById('unitSeconds').value = previousSeconds;
+                    }
+                }
+
+                hintEl.style.display = 'block';
+                setTimeout(() => {
+                    hintEl.style.display = 'none';
+                }, 4000);
+            } else {
+                lastRecordEndTime = null;
+                hintEl.style.display = 'none';
+            }
+        })
+        .catch(err => {
+            if (requestSeq !== lastRecordRequestSeq) {
+                return;
+            }
+            console.error("無法取得上一筆紀錄", err);
+        });
+    }
+
+
+    // =========================================================
+    // 新增無效工時
+    // =========================================================
+
+    function addInvalidBox() {
+        const container = document.getElementById('invalidContainer');
+        const count = container.getElementsByClassName('invalid-box').length;
+
+        if (count >= 4) {
+            alert("⚠️ 最多只能新增 4 組無效工時項目！");
+            return;
+        }
+
+        const newIndex = count + 1;
+        const div = document.createElement('div');
+        div.className = 'invalid-box';
+        div.setAttribute('data-index', newIndex);
+        div.innerHTML = `
+            <span>項目 ${newIndex}</span>
+            <button
+                type="button"
+                class="btn-remove"
+                onclick="removeInvalidBox(this)"
+            >
+                刪除
+            </button>
+            <div
+                class="form-group"
+                style="margin-top: 8px; margin-bottom: 8px;"
+            >
+                <select class="invalidType">
+                    <option value="">無</option>
+                    <option value="換刀">換刀</option>
+                    <option value="清潔">清潔</option>
+                    <option value="點檢">點檢</option>
+                    <option value="待料">待料</option>
+                    <option value="換批">換批</option>
+                    <option value="其他">其他</option>
+                </select>
+            </div>
+            <div
+                class="form-group"
+                style="margin-bottom: 0;"
+            >
+                <input
+                    type="text"
+                    class="invalidMin"
+                    inputmode="numeric"
+                    placeholder="請輸入分鐘數"
+                />
+            </div>
+        `;
+
+        container.appendChild(div);
+        checkAddButtonState();
+    }
+
+
+    // =========================================================
+    // 刪除無效工時
+    // =========================================================
+
+    function removeInvalidBox(btn) {
+        const box = btn.closest('.invalid-box');
+        if (box) {
+            box.remove();
+        }
+
+        updateInvalidLabels();
+        checkAddButtonState();
+    }
+
+
+    // =========================================================
+    // 更新無效工時項目編號
+    // =========================================================
+
+    function updateInvalidLabels() {
+        const boxes = document.querySelectorAll('.invalid-box');
+        boxes.forEach((box, index) => {
+            box.setAttribute('data-index', index + 1);
+            box.querySelector('span').textContent = `項目 ${index + 1}`;
+        });
+    }
+
+
+    // =========================================================
+    // 檢查「新增按鈕」顯示狀態 (滿 4 個隱藏)
+    // =========================================================
+
+    function checkAddButtonState() {
+        const count = document.querySelectorAll('.invalid-box').length;
+        const addBtn = document.getElementById('addInvalidBtn');
+        if (count >= 4) {
+            addBtn.style.display = 'none';
+        } else {
+            addBtn.style.display = 'block';
+        }
+    }
+
+
+    // =========================================================
+    // Enter 跳下一欄
+    // =========================================================
+
+    function jumpToNext(e, nextId) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const nextEl = document.getElementById(nextId);
+            if (nextEl) {
+                nextEl.focus();
+            }
+        }
+    }
+
+
+    // =========================================================
+    // 應有工時選定後自動跳到數量欄位
+    // =========================================================
+
+    function jumpToQty() {
+        const nextEl = document.getElementById('qty');
+        if (nextEl) {
+            nextEl.focus();
+        }
+    }
+
+
+    // =========================================================
+    // 開始時間格式化
+    // =========================================================
+
+    function autoFormatTime(input, nextId) {
+        let val = input.value.replace(/\D/g, '');
+        input.value = val;
+
+        if (val.length === 4) {
+            let hour = parseInt(val.substring(0, 2), 10);
+            let minute = parseInt(val.substring(2, 4), 10);
+
+            if (hour <= 23 && minute <= 59) {
+                input.value = String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0');
+                if (nextId) {
+                    const nextEl = document.getElementById(nextId);
+                    if (nextEl) {
+                        nextEl.focus();
+                    }
+                }
+            }
+        }
+    }
+
+
+    // =========================================================
+    // 結算時間格式化 (白班滿 4 碼跳數量，中班跳應有工時)
+    // =========================================================
+
+    function autoFormatEndTime(input) {
+        let val = input.value.replace(/\D/g, '');
+        input.value = val;
+
+        if (val.length === 4) {
+            let hour = parseInt(val.substring(0, 2), 10);
+            let minute = parseInt(val.substring(2, 4), 10);
+
+            if (hour <= 23 && minute <= 59) {
+                input.value = String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0');
+                
+                const shift = document.getElementById('shift').value;
+                if (shift === '白班') {
+                    document.getElementById('workingHours').value = '540';
+                    const nextEl = document.getElementById('qty');
+                    if (nextEl) {
+                        nextEl.focus();
+                    }
+                } else {
+                    const nextEl = document.getElementById('workingHours');
+                    if (nextEl) {
+                        nextEl.focus();
+                    }
+                }
+            }
+        }
+    }
+
+
+    // =========================================================
+    // 時間格式驗證
+    // =========================================================
+
+    function validateTimeInput(input) {
+        let val = input.value.trim();
+        if (!val) return;
+
+        let cleanVal = val.replace(/\D/g, '');
+
+        if (cleanVal.length === 4 && !val.includes(':')) {
+            let hour = parseInt(cleanVal.substring(0, 2), 10);
+            let minute = parseInt(cleanVal.substring(2, 4), 10);
+
+            if (hour > 23 || minute > 59) {
+                alert(`❌ 輸入的時間 (${val}) 無效！`);
+                input.value = '';
+                input.focus();
+                return;
+            }
+
+            input.value = String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0');
+        } else if (val.includes(':')) {
+            let parts = val.split(':');
+            let hour = parseInt(parts[0], 10);
+            let minute = parseInt(parts[1], 10);
+
+            if (isNaN(hour) || isNaN(minute) || hour > 23 || minute > 59) {
+                alert('❌ 輸入的時間格式不正確！');
+                input.value = '';
+                input.focus();
+            }
+        }
+    }
+
+
+    // =========================================================
+    // 機台搜尋
+    // =========================================================
+
+    const machineInput = document.getElementById('machine');
+    const machineList = document.getElementById('machineList');
+    let machineCurrentFocus = -1;
+
+    machineInput.addEventListener('input', function () {
+        selectedMachine = '';
+        document.getElementById('machineError').style.display = 'none';
+
+        const rawVal = this.value;
+        const val = rawVal.toLowerCase().replace(/[-\s]/g, '');
+
+        machineList.innerHTML = '';
+        machineCurrentFocus = -1;
+
+        if (!val) {
+            machineList.style.display = 'none';
+            return;
+        }
+
+        const filtered = allMachines.filter(m => {
+            const cleanM = m.toLowerCase().replace(/[-\s]/g, '');
+            return cleanM.includes(val);
+        });
+
+        if (filtered.length > 0) {
+            machineList.style.display = 'block';
+            filtered.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'dropdown-item';
+                div.textContent = item;
+                div.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    selectMachine(item);
+                });
+                machineList.appendChild(div);
+            });
+        } else {
+            machineList.style.display = 'none';
+        }
+    });
+
+
+    // =========================================================
+    // 選擇機台
+    // =========================================================
+
+    function selectMachine(item) {
+        machineInput.value = item;
+        selectedMachine = item;
+        machineList.style.display = 'none';
+        document.getElementById('machineError').style.display = 'none';
+
+        isUserTypingPart = false;
+        document.getElementById('part').value = '';
+        document.getElementById('startTime').value = '';
+        document.getElementById('endTime').value = '';
+        document.getElementById('unitSeconds').value = '';
+        lastRecordEndTime = null;
+
+        fetchLastRecord();
+        document.getElementById('part').focus();
+    }
+
+
+    // =========================================================
+    // 機台鍵盤操作
+    // =========================================================
+
+    machineInput.addEventListener('keydown', function (e) {
+        let items = machineList.getElementsByClassName('dropdown-item');
+
+        if (e.key === 'ArrowDown') {
+            if (items.length > 0) {
+                e.preventDefault();
+                machineCurrentFocus++;
+                if (machineCurrentFocus >= items.length) {
+                    machineCurrentFocus = 0;
+                }
+                addActive(items, machineCurrentFocus, 'machine');
+            }
+        } else if (e.key === 'ArrowUp') {
+            if (items.length > 0) {
+                e.preventDefault();
+                machineCurrentFocus--;
+                if (machineCurrentFocus < 0) {
+                    machineCurrentFocus = items.length - 1;
+                }
+                addActive(items, machineCurrentFocus, 'machine');
+            }
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (machineCurrentFocus > -1 && items[machineCurrentFocus]) {
+                selectMachine(items[machineCurrentFocus].textContent);
+            } else if (items.length > 0) {
+                selectMachine(items[0].textContent);
+            }
+        }
+    });
+
+
+    // =========================================================
+    // 機台失去焦點
+    // =========================================================
+
+    machineInput.addEventListener('blur', function () {
+        setTimeout(() => {
+            machineList.style.display = 'none';
+        }, 200);
+    });
+
+
+    // =========================================================
+    // 品號搜尋
+    // =========================================================
+
+    const partInput = document.getElementById('part');
+    const partList = document.getElementById('partList');
+    let partCurrentFocus = -1;
+
+    partInput.addEventListener('keydown', function (e) {
+        if (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete') {
+            isUserTypingPart = true;
+        }
+
+        let items = partList.getElementsByClassName('dropdown-item');
+
+        if (e.key === 'ArrowDown') {
+            if (items.length > 0) {
+                e.preventDefault();
+                partCurrentFocus++;
+                if (partCurrentFocus >= items.length) {
+                    partCurrentFocus = 0;
+                }
+                addActive(items, partCurrentFocus, 'part');
+            }
+        } else if (e.key === 'ArrowUp') {
+            if (items.length > 0) {
+                e.preventDefault();
+                partCurrentFocus--;
+                if (partCurrentFocus < 0) {
+                    partCurrentFocus = items.length - 1;
+                }
+                addActive(items, partCurrentFocus, 'part');
+            }
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            isUserTypingPart = false;
+
+            if (partCurrentFocus > -1 && items[partCurrentFocus]) {
+                partInput.value = items[partCurrentFocus].textContent;
+                partList.style.display = 'none';
+                document.getElementById('startTime').focus();
+            } else if (items.length > 0) {
+                partInput.value = items[0].textContent;
+                partList.style.display = 'none';
+                document.getElementById('startTime').focus();
+            } else {
+                partList.style.display = 'none';
+                document.getElementById('startTime').focus();
+            }
+        }
+    });
+
+    partInput.addEventListener('input', function () {
+        const rawVal = this.value;
+        const val = rawVal.toLowerCase().replace(/[-\s]/g, '');
+
+        partList.innerHTML = '';
+        partCurrentFocus = -1;
+
+        if (!val) {
+            partList.style.display = 'none';
+            return;
+        }
+
+        const filtered = allParts.filter(p => {
+            const cleanP = p.toLowerCase().replace(/[-\s]/g, '');
+            return cleanP.includes(val);
+        });
+
+        if (filtered.length > 0) {
+            partList.style.display = 'block';
+            filtered.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'dropdown-item';
+                div.textContent = item;
+                div.addEventListener('mousedown', function (e) {
+                    e.preventDefault();
+                    isUserTypingPart = false;
+                    partInput.value = item;
+                    partList.style.display = 'none';
+                    document.getElementById('startTime').focus();
+                });
+                partList.appendChild(div);
+            });
+        } else {
+            partList.style.display = 'none';
+        }
+    });
+
+    partInput.addEventListener('blur', function () {
+        setTimeout(() => {
+            partList.style.display = 'none';
+        }, 200);
+    });
+
+
+    // =========================================================
+    // 下拉選單鍵盤 active
+    // =========================================================
+
+    function addActive(items, index, type) {
+        if (!items) return;
+        for (let i = 0; i < items.length; i++) {
+            items[i].classList.remove('active');
+        }
+
+        if (type === 'machine') {
+            if (index >= items.length) {
+                machineCurrentFocus = 0;
+            }
+            if (index < 0) {
+                machineCurrentFocus = items.length - 1;
+            }
+            items[machineCurrentFocus].classList.add('active');
+            items[machineCurrentFocus].scrollIntoView({ block: 'nearest' });
+        } else if (type === 'part') {
+            if (index >= items.length) {
+                partCurrentFocus = 0;
+            }
+            if (index < 0) {
+                partCurrentFocus = items.length - 1;
+            }
+            items[partCurrentFocus].classList.add('active');
+            items[partCurrentFocus].scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+
+    // =========================================================
+    // 點擊頁面其他位置關閉下拉選單
+    // =========================================================
+
+    document.addEventListener('click', function (e) {
+        if (!machineInput.contains(e.target)) {
+            machineList.style.display = 'none';
+        }
+        if (!partInput.contains(e.target)) {
+            partList.style.display = 'none';
+        }
+    });
+
+
+    // =========================================================
+    // 班別切換
+    // =========================================================
+
+    function handleShiftChange() {
+        const shift = document.getElementById('shift').value;
+        const whSelect = document.getElementById('workingHours');
+
+        whSelect.innerHTML = '';
+
+        if (shift === '白班') {
+            let opt = document.createElement('option');
+            opt.value = '540';
+            opt.textContent = '540 分鐘 (標準白班)';
+            whSelect.appendChild(opt);
+        } else if (shift === '中班') {
+            let opt1 = document.createElement('option');
+            opt1.value = '510';
+            opt1.textContent = '510 分鐘';
+            let opt2 = document.createElement('option');
+            opt2.value = '630';
+            opt2.textContent = '630 分鐘';
+            whSelect.appendChild(opt1);
+            whSelect.appendChild(opt2);
+        }
+    }
+
+
+    // =========================================================
+    // 產生 Request ID
+    // =========================================================
+
+    function generateRequestId() {
+        const timestamp = Date.now();
+        const random = Math.random().toString(36).substring(2, 10);
+        return timestamp + '-' + random;
+    }
+
+
+    // =========================================================
+    // 解析時間
+    // =========================================================
+
+    function parseMinutes(timeStr, isMidShift) {
+        const parts = timeStr.split(':');
+        const h = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        let total = h * 60 + m;
+
+        if (isMidShift && total < 480) {
+            total += 1440;
+        }
+
+        return total;
+    }
+
+
+    // =========================================================
+    // 表單送出
+    // =========================================================
+
+    document.getElementById('reportForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+
+        if (!userProfile.userId) {
+            alert("⚠️ 尚未取得企業微信身分識別，請重新整理頁面！");
+            return;
+        }
+
+        const machine = machineInput.value.trim();
+        if (!machine || !selectedMachine || machine !== selectedMachine) {
+            document.getElementById('machineError').style.display = 'block';
+            alert("❌ 請從機台清單中選擇有效的機台！");
+            machineInput.focus();
+            return;
+        }
+
+        const shift = document.getElementById('shift').value;
+        const startTime = document.getElementById('startTime').value.trim();
+        const endTime = document.getElementById('endTime').value.trim();
+        const qtyInput = document.getElementById('qty').value.trim();
+        const qty = Number(qtyInput) || 0;
+
+        if (qty < 0) {
+            alert("❌ 完成數量不可為負數！");
+            document.getElementById('qty').focus();
+            return;
+        }
+
+        const unitSecondsInput = document.getElementById('unitSeconds').value.trim();
+        const unitSeconds = unitSecondsInput !== "" ? Number(unitSecondsInput) : 0;
+
+        if (unitSecondsInput !== "" && (isNaN(unitSeconds) || unitSeconds < 0 || unitSeconds > 300)) {
+            alert("❌ 單件工時秒數必須介於 0～300 秒！");
+            document.getElementById('unitSeconds').focus();
+            return;
+        }
+
+        if (qty > 0 && (unitSecondsInput === "" || unitSeconds <= 0)) {
+            alert("❌ 當有生產數量時，單件工時秒數為必填，且必須大於 0 秒！");
+            document.getElementById('unitSeconds').focus();
+            return;
+        }
+
+        const invalidBoxes = document.querySelectorAll('.invalid-box');
+        let invalidItems = [];
+        let hasNegativeInvalid = false;
+        let hasInvalidConfigError = false;
+        let totalInvalidMinutes = 0;
+
+        invalidBoxes.forEach(box => {
+            const type = box.querySelector('.invalidType').value;
+            const minInput = box.querySelector('.invalidMin').value.trim();
+            const min = minInput !== "" ? Number(minInput) : 0;
+
+            if (min < 0) {
+                hasNegativeInvalid = true;
+            }
+
+            if (type !== "" && type !== "無" && (minInput === "" || min <= 0)) {
+                hasInvalidConfigError = true;
+            }
+
+            if ((!type || type === "無") && min > 0) {
+                hasInvalidConfigError = true;
+            }
+
+            if (type && type !== "無" && min > 0) {
+                invalidItems.push({ type: type, min: min });
+                totalInvalidMinutes += min;
+            }
+        });
+
+        if (hasNegativeInvalid) {
+            alert("❌ 無效工時分鐘數不可輸入負數！");
+            return;
+        }
+
+        if (hasInvalidConfigError) {
+            alert("❌ 無效工時填寫有誤！\n\n若要填寫無效工時，請確實選擇項目並填入大於 0 的分鐘數；\n若不填寫請將項目設為「無」且分鐘數留空。");
+            return;
+        }
+
+        const workingHours = Number(document.getElementById('workingHours').value);
+
+        if (totalInvalidMinutes > workingHours) {
+            alert(`❌ 無效工時合計不可超過應有工時！\n\n應有工時：${workingHours} 分鐘\n無效工時：${totalInvalidMinutes} 分鐘`);
+            return;
+        }
+
+        if (qty > 0 && !endTime) {
+            alert("❌ 當您填寫了本次完成數量時，結算時間為必填欄位！");
+            document.getElementById('endTime').focus();
+            return;
+        }
+
+        if (qty === 0 && invalidItems.length > 0 && !endTime) {
+            alert("❌ 您回報了無效工時但數量為 0，請填寫結算時間以記錄區間！");
+            document.getElementById('endTime').focus();
+            return;
+        }
+
+        if (startTime && endTime && startTime === endTime) {
+            alert("❌ 開始時間與結算時間不能相同！");
+            return;
+        }
+
+        const isMid = (shift === '中班');
+        const startMin = parseMinutes(startTime, isMid);
+        const endMin = endTime ? parseMinutes(endTime, isMid) : null;
+
+        if (endMin !== null && startMin > endMin) {
+            alert(`❌ 時間防呆錯誤：開始時間 (${startTime}) 不能晚於結算時間 (${endTime})！`);
+            document.getElementById('startTime').focus();
+            return;
+        }
+
+        if (endMin !== null) {
+            let totalElapsedMinutes = endMin - startMin;
+
+            if (shift === '中班') {
+                if (workingHours === 510 && totalElapsedMinutes === 630) {
+                    alert(
+                        `❌ 報工時間邏輯錯誤！\n\n` +
+                        `您選擇的應有工時是 【510 分鐘】，但填寫的起訖時間 (${startTime} ~ ${endTime}) 總計是 630 分鐘。\n\n` +
+                        `若要報滿 630 分鐘，請將「應有工時」改選為 630 分鐘；\n` +
+                        `若應有工時為 510 分鐘，請調整結算時間或填寫無效工時扣除！`
+                    );
+                    document.getElementById('workingHours').focus();
+                    return;
+                }
+            }
+        }
+
+        if (shift === '白班') {
+            const rawStart = parseMinutes(startTime, false);
+            const rawEnd = endMin !== null ? parseMinutes(endTime, false) : null;
+
+            if (rawStart < 480 || rawStart > 1080 || (rawEnd !== null && (rawEnd < 480 || rawEnd > 1080))) {
+                alert("❌ 【白班】的時間範圍必須在 08:00 ～ 18:00 之間！");
+                return;
+            }
+        } else if (shift === '中班') {
+            const adjStartMin = startMin;
+            const adjEndMin = endMin !== null ? parseMinutes(endTime, true) : null;
+
+            if (adjStartMin < 1020 || adjStartMin > 1650 || (adjEndMin !== null && (adjEndMin > 1650 || adjStartMin > adjEndMin))) {
+                alert("❌ 【中班】的時間範圍必須在 17:00 ～ 03:30 跨夜範圍內！");
+                return;
+            }
+        }
+
+        if (!currentRequestId) {
+            currentRequestId = generateRequestId();
+        }
+
+        document.getElementById('requestIdDisplay').textContent = currentRequestId;
+        document.getElementById('requestHint').style.display = 'block';
+
+        const submitBtn = document.getElementById('submitBtn');
+        submitBtn.disabled = true;
+        submitBtn.textContent = "傳送中...";
+        document.getElementById('loading').style.display = 'block';
+
+        const formData = {
+            requestId: currentRequestId,
+            userId: userProfile.userId,
+            userName: userProfile.displayName,
+            date: document.getElementById('date').value,
+            shift: shift,
+            machine: machineInput.value,
+            part: partInput.value,
+            startTime: startTime,
+            endTime: endTime,
+            workingHours: workingHours,
+            qty: qty,
+            unitSeconds: unitSeconds,
+            invalidItems: invalidItems,
+            remark: document.getElementById('remark').value
+        };
+
+        let timeoutId;
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(() => {
+                reject(new Error('timeout'));
+            }, 15000);
+        });
+
+        const fetchPromise = fetch(GAS_WEB_APP_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'text/plain;charset=utf-8'
+            },
+            body: JSON.stringify(formData)
+        })
+        .then(res => {
+            clearTimeout(timeoutId);
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}`);
+            }
+            return res.json();
+        });
+
+        Promise.race([fetchPromise, timeoutPromise])
+        .then(data => {
+            document.getElementById('loading').style.display = 'none';
+            submitBtn.disabled = false;
+            submitBtn.textContent = "確認送出";
+
+            if (data && data.success === false) {
+                alert(data.message || "❌ 回報失敗，資料未寫入。");
+                return;
+            }
+
+            alert(data.message || "✅ 回報成功！");
+            resetFormAfterSubmit();
+        })
+        .catch(err => {
+            document.getElementById('loading').style.display = 'none';
+            submitBtn.disabled = false;
+            submitBtn.textContent = "重新確認 / 送出";
+
+            console.warn("POST 回應異常：", err);
+
+            alert(
+                "⚠️ 無法確認回報結果。\n\n" +
+                "資料可能已經寫入試算表，也可能尚未寫入。\n\n" +
+                "請先不要重新填寫資料。\n\n" +
+                "Request ID：\n" + currentRequestId + "\n\n" +
+                "若後端有啟用 Request ID 防重複機制，可以使用相同 Request ID 再次送出以確認結果。"
+            );
+        });
+    });
+
+
+    // =========================================================
+    // 送出成功後重設表單
+    // =========================================================
+
+    function resetFormAfterSubmit() {
+        document.getElementById('qty').value = '';
+        document.getElementById('unitSeconds').value = '';
+        document.getElementById('startTime').value = '';
+        document.getElementById('endTime').value = '';
+        document.getElementById('remark').value = '';
+
+        machineInput.value = '';
+        partInput.value = '';
+        selectedMachine = '';
+        isUserTypingPart = false;
+        lastRecordEndTime = null;
+        currentRequestId = null;
+
+        document.getElementById('requestHint').style.display = 'none';
+        document.getElementById('machineError').style.display = 'none';
+
+        const container = document.getElementById('invalidContainer');
+        container.innerHTML = `
+            <div class="invalid-box" data-index="1">
+                <span>項目 1</span>
+                <div
+                    class="form-group"
+                    style="margin-top: 8px; margin-bottom: 8px;"
+                >
+                    <select class="invalidType">
+                        <option value="">無</option>
+                        <option value="換刀">換刀</option>
+                        <option value="清潔">清潔</option>
+                        <option value="點檢">點檢</option>
+                        <option value="待料">待料</option>
+                        <option value="換批">換批</option>
+                        <option value="其他">其他</option>
+                    </select>
+                </div>
+                <div
+                    class="form-group"
+                    style="margin-bottom: 0;"
+                >
+                    <input
+                        type="text"
+                        class="invalidMin"
+                        inputmode="numeric"
+                        placeholder="請輸入分鐘數"
+                    />
+                </div>
+            </div>
+            
+            <div class="invalid-box" data-index="2">
+                <span>項目 2</span>
+                <button
+                    type="button"
+                    class="btn-remove"
+                    onclick="removeInvalidBox(this)"
+                >
+                    刪除
+                </button>
+                <div
+                    class="form-group"
+                    style="margin-top: 8px; margin-bottom: 8px;"
+                >
+                    <select class="invalidType">
+                        <option value="">無</option>
+                        <option value="換刀">換刀</option>
+                        <option value="清潔">清潔</option>
+                        <option value="點檢">點檢</option>
+                        <option value="待料">待料</option>
+                        <option value="換批">換批</option>
+                        <option value="其他">其他</option>
+                    </select>
+                </div>
+                <div
+                    class="form-group"
+                    style="margin-bottom: 0;"
+                >
+                    <input
+                        type="text"
+                        class="invalidMin"
+                        inputmode="numeric"
+                        placeholder="請輸入分鐘數"
+                    />
+                </div>
+            </div>
+        `;
+
+        checkAddButtonState();
+        machineInput.focus();
+    }
+
+</script>
+
+</body>
+</html>

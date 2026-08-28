@@ -213,7 +213,7 @@
 <div id="authOverlay">
     <div class="auth-box">
         <h3>🔐 系統身分驗證</h3>
-        <p style="font-size: 14px; color: #666; margin-bottom: 15px;">請輸入您的報工授權姓名以解鎖系統</p>
+        <p style="font-size: 14px; color: #666; margin-bottom: 15px;">請輸入您的授權姓名以解鎖系統</p>
         <div class="form-group" style="text-align: left;">
             <input type="text" id="authInputName" placeholder="例如: Winnie" style="margin-bottom: 10px;">
         </div>
@@ -231,7 +231,7 @@
         onkeydown="if(event.key === 'Enter' && event.target.tagName !== 'BUTTON') { event.preventDefault(); }"
     >
 
-        <!-- 顯示已驗證身分 (唯讀) -->
+        <!-- 回報人員姓名 (唯讀，由驗證遮罩帶入) -->
         <div class="form-group">
             <label for="operatorName">回報人員姓名：</label>
             <input
@@ -520,7 +520,7 @@
 <script>
 
     // =========================================================
-    // 基本設定
+    // 基本設定 (請確認此處為您的 GAS 部署網址)
     // =========================================================
 
     const GAS_WEB_APP_URL =
@@ -556,7 +556,7 @@
 
         document.getElementById('date').value = mm + dd;
 
-        // 檢查是否已經驗證過身分
+        // 檢查瀏覽器是否已記住驗證過的身分
         checkCachedOperator();
 
         fetchOptions();
@@ -566,17 +566,31 @@
 
 
     // =========================================================
-    // 驗證並解鎖系統
+    // 驗證身分並解鎖系統
     // =========================================================
 
     function checkCachedOperator() {
         const savedName = localStorage.getItem('cnc_authorized_operator');
         if (savedName) {
-            // 如果瀏覽器已經記住，直接解鎖並填入欄位
-            document.getElementById('operatorName').value = savedName;
-            document.getElementById('authOverlay').style.display = 'none';
+            // 向後端確認已儲存的名字是否依然有效
+            fetch(`${GAS_WEB_APP_URL}?action=verifyAuth&name=${encodeURIComponent(savedName)}`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('operatorName').value = savedName;
+                    document.getElementById('authOverlay').style.display = 'none';
+                } else {
+                    localStorage.removeItem('cnc_authorized_operator');
+                    document.getElementById('authOverlay').style.display = 'flex';
+                    document.getElementById('authInputName').focus();
+                }
+            })
+            .catch(() => {
+                // 網路異常時允許暫時使用快取
+                document.getElementById('operatorName').value = savedName;
+                document.getElementById('authOverlay').style.display = 'none';
+            });
         } else {
-            // 否則保持遮罩開啟，並讓輸入框取得焦點
             document.getElementById('authOverlay').style.display = 'flex';
             document.getElementById('authInputName').focus();
         }
@@ -592,15 +606,28 @@
             return;
         }
 
-        // 透過前端向後端驗證該名字是否在授權名單內 (我們可以利用 getOptions 或另外寫個驗證請求，最快的方式是直接存入 localStorage 搭配後端最終把關，或者用簡單的非同步驗證)
-        // 為了確保安全，我們直接將名字寫入並解鎖，反正最終送出時後端 GAS 會做嚴格的「員工授權」分頁攔截！
-        localStorage.setItem('cnc_authorized_operator', inputName);
-        
-        document.getElementById('operatorName').value = inputName;
-        document.getElementById('authOverlay').style.display = 'none';
-        
-        // 聚焦到機台搜尋框
-        machineInput.focus();
+        errorEl.textContent = "⏳ 正在驗證身分...";
+        errorEl.style.display = 'block';
+
+        // 透過後端驗證是否在「員工授權」分頁內
+        fetch(`${GAS_WEB_APP_URL}?action=verifyAuth&name=${encodeURIComponent(inputName)}`)
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                localStorage.setItem('cnc_authorized_operator', inputName);
+                document.getElementById('operatorName').value = inputName;
+                document.getElementById('authOverlay').style.display = 'none';
+                machineInput.focus();
+            } else {
+                errorEl.textContent = "❌ 此姓名不在授權報工名單內！";
+                errorEl.style.display = 'block';
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            errorEl.textContent = "❌ 驗證連線失敗，請檢查網路！";
+            errorEl.style.display = 'block';
+        });
     }
 
 
@@ -627,7 +654,7 @@
 
 
     // =========================================================
-    // 取得上一筆資料
+    // 取得上一筆紀錄
     // =========================================================
 
     function fetchLastRecord() {
@@ -856,7 +883,7 @@
 
 
     // =========================================================
-    // 結算時間格式化 (白班滿 4 碼跳數量，中班跳應有工時)
+    // 結算時間格式化
     // =========================================================
 
     function autoFormatEndTime(input) {
@@ -1026,11 +1053,6 @@
             }
         }
     });
-
-
-    // =========================================================
-    // 機台失去焦點
-    // =========================================================
 
     machineInput.addEventListener('blur', function () {
         setTimeout(() => {
@@ -1330,51 +1352,6 @@
         if (startTime && endTime && startTime === endTime) {
             alert("❌ 開始時間與結算時間不能相同！");
             return;
-        }
-
-        const isMid = (shift === '中班');
-        const startMin = parseMinutes(startTime, isMid);
-        const endMin = endTime ? parseMinutes(endTime, isMid) : null;
-
-        if (endMin !== null && startMin > endMin) {
-            alert(`❌ 時間防呆錯誤：開始時間 (${startTime}) 不能晚於結算時間 (${endTime})！`);
-            document.getElementById('startTime').focus();
-            return;
-        }
-
-        if (endMin !== null) {
-            let totalElapsedMinutes = endMin - startMin;
-
-            if (shift === '中班') {
-                if (workingHours === 510 && totalElapsedMinutes === 630) {
-                    alert(
-                        `❌ 報工時間邏輯錯誤！\n\n` +
-                        `您選擇的應有工時是 【510 分鐘】，但填寫的起訖時間 (${startTime} ~ ${endTime}) 總計是 630 分鐘。\n\n` +
-                        `若要報滿 630 分鐘，請將「應有工時」改選為 630 分鐘；\n` +
-                        `若應有工時為 510 分鐘，請調整結算時間或填寫無效工時扣除！`
-                    );
-                    document.getElementById('workingHours').focus();
-                    return;
-                }
-            }
-        }
-
-        if (shift === '白班') {
-            const rawStart = parseMinutes(startTime, false);
-            const rawEnd = endMin !== null ? parseMinutes(endTime, false) : null;
-
-            if (rawStart < 480 || rawStart > 1080 || (rawEnd !== null && (rawEnd < 480 || rawEnd > 1080))) {
-                alert("❌ 【白班】的時間範圍必須在 08:00 ～ 18:00 之間！");
-                return;
-            }
-        } else if (shift === '中班') {
-            const adjStartMin = startMin;
-            const adjEndMin = endMin !== null ? parseMinutes(endTime, true) : null;
-
-            if (adjStartMin < 1020 || adjStartMin > 1650 || (adjEndMin !== null && (adjEndMin > 1650 || adjStartMin > adjEndMin))) {
-                alert("❌ 【中班】的時間範圍必須在 17:00 ～ 03:30 跨夜範圍內！");
-                return;
-            }
         }
 
         if (!currentRequestId) {
